@@ -1,12 +1,13 @@
 /**
- * Social Housing Overlay - Content Script (v1.2.1)
+ * Social Housing Overlay - Content Script (v1.2.2)
  * High-performance spatial rendering over Funda and Google Maps.
  * Features:
  * - Dynamic border opacity linked to overall layer opacity.
+ * - Disappears overlay instantly during panning/moving until new coordinates are recalculated.
  */
 (() => {
   const isGoogle = window.location.hostname.includes('google');
-  console.log(`%c[Social Housing Overlay v1.2.1] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
+  console.log(`%c[Social Housing Overlay v1.2.2] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
 
   // Inject helper script into webpage context to intercept map events if available
   try {
@@ -63,6 +64,7 @@
   let tooltipElement = null;
   let lastUrl = '';
   let hoveredFeature = null;
+  let wheelDebounceTimer = null;
 
   // 1. Setup In-Page HUD attached directly to document.body
   function createHud() {
@@ -287,6 +289,21 @@
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
+    }
+  }
+
+  // Clear overlay immediately during movement/pan so no stale polygons remain visible
+  function clearOverlay() {
+    if (!canvas || !ctx || !mapContainer) return;
+    const rect = mapContainer.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    ctx.restore();
+    if (hoveredFeature) {
+      hoveredFeature = null;
+      hideTooltip();
     }
   }
 
@@ -541,6 +558,36 @@
   }
 
   function setupEventListeners() {
+    // 1. Immediately disappear overlay when user starts dragging/panning
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && mapContainer) {
+        const rect = mapContainer.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right &&
+            e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          clearOverlay();
+        }
+      }
+    });
+
+    // 2. Immediately disappear overlay when user scrolls wheel to zoom
+    window.addEventListener('wheel', (e) => {
+      if (!mapContainer) return;
+      const rect = mapContainer.getBoundingClientRect();
+      if (e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top && e.clientY <= rect.bottom) {
+        clearOverlay();
+        clearTimeout(wheelDebounceTimer);
+        wheelDebounceTimer = setTimeout(() => {
+          checkUrlSync();
+        }, 120);
+      }
+    }, { passive: true });
+
+    // Touch support (mobile / touchpads)
+    window.addEventListener('touchstart', () => {
+      if (mapContainer) clearOverlay();
+    }, { passive: true });
+
     window.addEventListener('mousemove', (e) => {
       // Hover tooltip logic
       if (!settings.enabled || !spatialIndex || !mapContainer) {
@@ -594,6 +641,14 @@
       scheduleRedraw();
     });
 
+    window.addEventListener('mouseup', () => {
+      setTimeout(checkUrlSync, 40);
+    });
+
+    window.addEventListener('touchend', () => {
+      setTimeout(checkUrlSync, 40);
+    });
+
     window.addEventListener('resize', () => {
       syncCanvasPosition();
       scheduleRedraw();
@@ -603,10 +658,6 @@
       syncCanvasPosition();
       scheduleRedraw();
     }, { passive: true });
-
-    window.addEventListener('wheel', () => setTimeout(checkUrlSync, 60), { passive: true });
-    window.addEventListener('mouseup', () => setTimeout(checkUrlSync, 60), { passive: true });
-    window.addEventListener('touchend', () => setTimeout(checkUrlSync, 60), { passive: true });
   }
 
   function showTooltip(clientX, clientY, feat) {
