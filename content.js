@@ -1,10 +1,13 @@
 /**
- * Social Housing Overlay - Content Script (v1.1.0)
+ * Social Housing Overlay - Content Script (v1.2.0)
  * High-performance spatial rendering over Funda and Google Maps.
+ * Features:
+ * - Fluid gesture scaling & pan tracking during active map zoom/pan.
+ * - Dynamic border opacity linked to overall layer opacity.
  */
 (() => {
   const isGoogle = window.location.hostname.includes('google');
-  console.log(`%c[Social Housing Overlay v1.1.0] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
+  console.log(`%c[Social Housing Overlay v1.2.0] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
 
   // Inject helper script into webpage context to intercept map events if available
   try {
@@ -61,6 +64,32 @@
   let tooltipElement = null;
   let lastUrl = '';
   let hoveredFeature = null;
+
+  // Real-time gesture tracking for fluid zoom/pan transitions
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let currentPanX = 0;
+  let currentPanY = 0;
+  let currentScale = 1.0;
+  let zoomOriginX = 0;
+  let zoomOriginY = 0;
+  let resetTransformTimer = null;
+
+  function applyCanvasTransform() {
+    if (!canvas) return;
+    canvas.style.transformOrigin = `${zoomOriginX}px ${zoomOriginY}px`;
+    canvas.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${currentScale})`;
+  }
+
+  function resetCanvasTransform() {
+    if (!canvas) return;
+    currentPanX = 0;
+    currentPanY = 0;
+    currentScale = 1.0;
+    canvas.style.transform = 'none';
+    canvas.style.transition = 'none';
+  }
 
   // 1. Setup In-Page HUD attached directly to document.body
   function createHud() {
@@ -191,7 +220,7 @@
 
   // 5. Robust Map Container Detection (Funda + Google Maps)
   function findMapContainer() {
-    // Strategy 1: Active map canvas (Mapbox GL or Google Maps WebGL canvas)
+    // Strategy 1: Active map canvas (Mapbox GL on Funda, WebGL on Google Maps)
     const canvases = document.querySelectorAll('canvas');
     for (const c of canvases) {
       if (c.id === 'funda-social-housing-canvas') continue;
@@ -201,7 +230,7 @@
       }
     }
 
-    // Strategy 2: Google Maps specific scene containers
+    // Strategy 2: Google Maps scene containers
     const gScene = document.querySelector('#scene, .widget-scene, .widget-scene-canvas, #content-container');
     if (gScene) {
       const rect = gScene.getBoundingClientRect();
@@ -238,7 +267,7 @@
     return null;
   }
 
-  // 6. Setup Canvas Overlay: Mounted on document.body with position: fixed
+  // 6. Setup Canvas Overlay: Fixed root layer on document.body
   function scanAndSetupMap() {
     const container = findMapContainer();
     if (!container) return;
@@ -253,7 +282,6 @@
       canvas.id = 'funda-social-housing-canvas';
       canvas.className = 'funda-housing-overlay';
 
-      // Attach to document.body with position: fixed (working v1.0.2 structure)
       document.body.appendChild(canvas);
       ctx = canvas.getContext('2d');
 
@@ -373,7 +401,10 @@
       if (!canvas || !ctx || !mapContainer) return;
     }
 
+    // Reset intermediate gesture CSS transform cleanly
+    resetCanvasTransform();
     syncCanvasPosition();
+
     const rect = mapContainer.getBoundingClientRect();
     const width = rect.width;
     const height = rect.height;
@@ -434,6 +465,10 @@
     const minPct = settings.minPercentage;
     const baseOpacity = settings.opacity;
 
+    // Both fill and border opacity scale proportionally with user opacity slider!
+    const strokeAlpha = Math.min(1.0, baseOpacity * 1.25);
+    const dynamicLineWidth = Math.max(0.8, 1.8 * Math.min(1.0, baseOpacity + 0.2));
+
     // Draw visible polygons
     for (let i = 0; i < features.length; i++) {
       const feat = features[i];
@@ -445,27 +480,27 @@
       if (settings.colorMode === 'corp') {
         const cHex = CORP_COLORS[feat.c] || '#e11d48';
         fillColor = hexToRgba(cHex, baseOpacity);
-        strokeColor = cHex;
+        strokeColor = hexToRgba(cHex, strokeAlpha);
       } else {
-        // High-Visibility Vivid Red & Amber Risk Alert
+        // High-Visibility Vivid Red & Amber Risk Alert with dynamic border alpha
         if (feat.p >= 100) {
-          fillColor = `rgba(220, 38, 38, ${baseOpacity})`;       // Strong vivid red
-          strokeColor = '#991b1b';
+          fillColor = `rgba(220, 38, 38, ${baseOpacity})`;
+          strokeColor = `rgba(153, 27, 27, ${strokeAlpha})`;
         } else if (feat.p >= 75) {
-          fillColor = `rgba(234, 88, 12, ${baseOpacity * 0.95})`; // Orange-red
-          strokeColor = '#c2410c';
+          fillColor = `rgba(234, 88, 12, ${baseOpacity * 0.95})`;
+          strokeColor = `rgba(194, 65, 12, ${strokeAlpha})`;
         } else if (feat.p >= 50) {
-          fillColor = `rgba(245, 158, 11, ${baseOpacity * 0.9})`; // Amber
-          strokeColor = '#b45309';
+          fillColor = `rgba(245, 158, 11, ${baseOpacity * 0.9})`;
+          strokeColor = `rgba(180, 83, 9, ${strokeAlpha})`;
         } else {
-          fillColor = `rgba(234, 179, 8, ${baseOpacity * 0.8})`;  // Soft amber
-          strokeColor = '#a16207';
+          fillColor = `rgba(234, 179, 8, ${baseOpacity * 0.8})`;
+          strokeColor = `rgba(161, 98, 7, ${strokeAlpha})`;
         }
       }
 
       ctx.fillStyle = fillColor;
       ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 2.0;
+      ctx.lineWidth = dynamicLineWidth;
 
       const geom = feat.g;
       if (geom.type === 'Polygon') {
@@ -535,7 +570,33 @@
   }
 
   function setupEventListeners() {
+    // A. 1:1 Real-time Fluid Pan Tracking
+    window.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && mapContainer) {
+        const rect = mapContainer.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right &&
+            e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          isDragging = true;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          if (canvas) canvas.style.transition = 'none';
+        }
+      }
+    });
+
     window.addEventListener('mousemove', (e) => {
+      // 1:1 Drag pan tracking
+      if (isDragging && canvas) {
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        currentPanX += dx;
+        currentPanY += dy;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        applyCanvasTransform();
+      }
+
+      // Hover tooltip logic
       if (!settings.enabled || !spatialIndex || !mapContainer) {
         hideTooltip();
         return;
@@ -581,7 +642,38 @@
       }
     });
 
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        setTimeout(checkUrlSync, 40);
+      }
+    });
+
+    // B. Real-time Fluid Zoom Scaling (Wheel)
+    window.addEventListener('wheel', (e) => {
+      if (!mapContainer || !canvas) return;
+      const rect = mapContainer.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top || e.clientY > rect.bottom) return;
+
+      zoomOriginX = e.clientX - rect.left;
+      zoomOriginY = e.clientY - rect.top;
+
+      // Smooth geometric scale factor matching map zoom gesture
+      const factor = e.deltaY < 0 ? 1.12 : 0.89;
+      currentScale *= factor;
+
+      canvas.style.transition = 'transform 0.08s ease-out';
+      applyCanvasTransform();
+
+      clearTimeout(resetTransformTimer);
+      resetTransformTimer = setTimeout(() => {
+        checkUrlSync();
+      }, 140);
+    }, { passive: true });
+
     window.addEventListener('mouseleave', () => {
+      isDragging = false;
       hoveredFeature = null;
       hideTooltip();
       scheduleRedraw();
@@ -596,10 +688,6 @@
       syncCanvasPosition();
       scheduleRedraw();
     }, { passive: true });
-
-    window.addEventListener('wheel', () => setTimeout(checkUrlSync, 60), { passive: true });
-    window.addEventListener('mouseup', () => setTimeout(checkUrlSync, 60), { passive: true });
-    window.addEventListener('touchend', () => setTimeout(checkUrlSync, 60), { passive: true });
   }
 
   function showTooltip(clientX, clientY, feat) {
@@ -626,8 +714,8 @@
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // 11. Continuous Sync Timers
-  setInterval(checkUrlSync, 100);
+  // 11. Continuous Fast Sync Timer (every 60ms for rapid response)
+  setInterval(checkUrlSync, 60);
 
   const observer = new MutationObserver(() => {
     if (!mapContainer || !document.contains(mapContainer)) {
