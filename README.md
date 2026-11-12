@@ -1,4 +1,4 @@
-# Social Housing Overlay (Funda & Google Maps)
+# Social Housing Overlay (Funda & Google Maps) v1.2.2
 
 A super-performant, lightweight Chrome Extension (Manifest V3) that overlays **AFWC social and corporate housing building blocks** directly onto **Funda** and **Google Maps**, helping you instantly spot and avoid corporate housing areas.
 
@@ -7,6 +7,8 @@ A super-performant, lightweight Chrome Extension (Manifest V3) that overlays **A
 ## 🚀 Key Features
 
 * **Dual Platform Support:** Runs seamlessly on both **Funda** (`funda.nl/zoeken/kaart/*`) and **Google Maps** (`google.com/maps` / `google.nl/maps`).
+* **Instant Motion Disappearance:** As soon as you drag/pan or scroll to zoom, stale polygons disappear immediately (`0ms`), redrawing crisply at the exact new coordinates when movement stops.
+* **Proportional Border Transparency:** Both the internal polygon fill and the dark border fade smoothly in tandem with the opacity slider.
 * **Instant Visual Alert:** Corporate housing blocks appear highlighted in vivid red (100% corporate) and amber (mixed housing).
 * **Super Performant Spatial Grid Index:** Stores 38,293 building blocks in memory and queries visible polygons in **under 2 milliseconds** as you pan and zoom.
 * **In-Page Floating HUD Widget:**
