@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Funda Social Housing Overlay</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <span class="icon">🏘️</span>
+      <span class="title">Funda Housing</span>
+    </div>
+    <span class="badge">AFWC 2025</span>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="label">Social Housing Overlay</div>
+        <div class="subtext">Highlight corporate dwellings on Funda</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="toggle-enabled" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="control-group">
+      <div class="row">
+        <span class="control-label">Layer Opacity</span>
+        <span class="val-display" id="opacity-val">65%</span>
+      </div>
+      <input type="range" id="opacity-slider" min="10" max="100" value="65" class="slider-input">
+    </div>
+
+    <div class="control-group">
+      <div class="row">
+        <span class="control-label">Min. Social Housing %</span>
+        <span class="val-display" id="min-pct-val">0% (All)</span>
+      </div>
+      <input type="range" id="min-pct-slider" min="0" max="100" step="10" value="0" class="slider-input">
+    </div>
+
+    <div class="control-group">
+      <div class="row">
+        <span class="control-label">Color Scheme</span>
+      </div>
+      <select id="color-mode" class="select-input">
+        <option value="risk">Risk Alert (Red & Orange)</option>
+        <option value="corp">AFWC Corporation Brand Colors</option>
+      </select>
+    </div>
+
+    <div class="row" style="margin-top: 10px;">
+      <span class="control-label">Hover Details Tooltip</span>
+      <input type="checkbox" id="toggle-tooltip" checked>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="meta-row">
+      <span>Database:</span>
+      <strong>38,293 building blocks</strong>
+    </div>
+    <div class="meta-row">
+      <span>Coverage:</span>
+      <strong>Amsterdam & MRA Region</strong>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

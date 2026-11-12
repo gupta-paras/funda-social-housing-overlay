@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Funda Map Simulation Test (Almere)</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 380px;
+      background: #f1f5f9;
+      padding: 20px;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      z-index: 1;
+    }
+    #map-container {
+      flex: 1;
+      position: relative;
+      background: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .funda-mock-map {
+      width: 100%;
+      height: 100%;
+      background: #e5e7eb;
+    }
+  </style>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="sidebar">
+    <h2>Funda Search Results</h2>
+    <p>Simulating Funda Map View in Almere...</p>
+    <div style="background: white; padding: 12px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #cbd5e1;">
+      <strong>Sample Listing in Almere</strong><br>
+      € 350.000 k.k.<br>
+      <small>Coordinates: 52.3752, 5.2139</small>
+    </div>
+  </div>
+
+  <div id="map-container" class="mapboxgl-map">
+    <canvas class="funda-mock-map" width="1200" height="800"></canvas>
+  </div>
+
+  <script src="spatial-index.js"></script>
+  <script>
+    // Test spatial index loading & query directly
+    async function test() {
+      const res = await fetch('data/social_housing.json');
+      const data = await res.json();
+      console.log('Loaded items:', data.length);
+      const idx = new SpatialIndex(0.01);
+      idx.load(data);
+      const found = idx.search(5.1899, 52.3692, 5.2378, 52.3812);
+      console.log('Polygons in Almere viewport:', found.length);
+    }
+    test();
+  </script>
+</body>
+</html>
