@@ -1,13 +1,12 @@
 /**
- * Social Housing Overlay - Content Script (v1.2.0)
+ * Social Housing Overlay - Content Script (v1.2.1)
  * High-performance spatial rendering over Funda and Google Maps.
  * Features:
- * - Fluid gesture scaling & pan tracking during active map zoom/pan.
  * - Dynamic border opacity linked to overall layer opacity.
  */
 (() => {
   const isGoogle = window.location.hostname.includes('google');
-  console.log(`%c[Social Housing Overlay v1.2.0] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
+  console.log(`%c[Social Housing Overlay v1.2.1] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
 
   // Inject helper script into webpage context to intercept map events if available
   try {
@@ -64,32 +63,6 @@
   let tooltipElement = null;
   let lastUrl = '';
   let hoveredFeature = null;
-
-  // Real-time gesture tracking for fluid zoom/pan transitions
-  let isDragging = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
-  let currentPanX = 0;
-  let currentPanY = 0;
-  let currentScale = 1.0;
-  let zoomOriginX = 0;
-  let zoomOriginY = 0;
-  let resetTransformTimer = null;
-
-  function applyCanvasTransform() {
-    if (!canvas) return;
-    canvas.style.transformOrigin = `${zoomOriginX}px ${zoomOriginY}px`;
-    canvas.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${currentScale})`;
-  }
-
-  function resetCanvasTransform() {
-    if (!canvas) return;
-    currentPanX = 0;
-    currentPanY = 0;
-    currentScale = 1.0;
-    canvas.style.transform = 'none';
-    canvas.style.transition = 'none';
-  }
 
   // 1. Setup In-Page HUD attached directly to document.body
   function createHud() {
@@ -401,8 +374,6 @@
       if (!canvas || !ctx || !mapContainer) return;
     }
 
-    // Reset intermediate gesture CSS transform cleanly
-    resetCanvasTransform();
     syncCanvasPosition();
 
     const rect = mapContainer.getBoundingClientRect();
@@ -570,32 +541,7 @@
   }
 
   function setupEventListeners() {
-    // A. 1:1 Real-time Fluid Pan Tracking
-    window.addEventListener('mousedown', (e) => {
-      if (e.button === 0 && mapContainer) {
-        const rect = mapContainer.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right &&
-            e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          isDragging = true;
-          dragStartX = e.clientX;
-          dragStartY = e.clientY;
-          if (canvas) canvas.style.transition = 'none';
-        }
-      }
-    });
-
     window.addEventListener('mousemove', (e) => {
-      // 1:1 Drag pan tracking
-      if (isDragging && canvas) {
-        const dx = e.clientX - dragStartX;
-        const dy = e.clientY - dragStartY;
-        currentPanX += dx;
-        currentPanY += dy;
-        dragStartX = e.clientX;
-        dragStartY = e.clientY;
-        applyCanvasTransform();
-      }
-
       // Hover tooltip logic
       if (!settings.enabled || !spatialIndex || !mapContainer) {
         hideTooltip();
@@ -642,38 +588,7 @@
       }
     });
 
-    window.addEventListener('mouseup', () => {
-      if (isDragging) {
-        isDragging = false;
-        setTimeout(checkUrlSync, 40);
-      }
-    });
-
-    // B. Real-time Fluid Zoom Scaling (Wheel)
-    window.addEventListener('wheel', (e) => {
-      if (!mapContainer || !canvas) return;
-      const rect = mapContainer.getBoundingClientRect();
-      if (e.clientX < rect.left || e.clientX > rect.right ||
-          e.clientY < rect.top || e.clientY > rect.bottom) return;
-
-      zoomOriginX = e.clientX - rect.left;
-      zoomOriginY = e.clientY - rect.top;
-
-      // Smooth geometric scale factor matching map zoom gesture
-      const factor = e.deltaY < 0 ? 1.12 : 0.89;
-      currentScale *= factor;
-
-      canvas.style.transition = 'transform 0.08s ease-out';
-      applyCanvasTransform();
-
-      clearTimeout(resetTransformTimer);
-      resetTransformTimer = setTimeout(() => {
-        checkUrlSync();
-      }, 140);
-    }, { passive: true });
-
     window.addEventListener('mouseleave', () => {
-      isDragging = false;
       hoveredFeature = null;
       hideTooltip();
       scheduleRedraw();
@@ -688,6 +603,10 @@
       syncCanvasPosition();
       scheduleRedraw();
     }, { passive: true });
+
+    window.addEventListener('wheel', () => setTimeout(checkUrlSync, 60), { passive: true });
+    window.addEventListener('mouseup', () => setTimeout(checkUrlSync, 60), { passive: true });
+    window.addEventListener('touchend', () => setTimeout(checkUrlSync, 60), { passive: true });
   }
 
   function showTooltip(clientX, clientY, feat) {
@@ -714,8 +633,8 @@
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // 11. Continuous Fast Sync Timer (every 60ms for rapid response)
-  setInterval(checkUrlSync, 60);
+  // 11. Continuous Fast Sync Timer
+  setInterval(checkUrlSync, 80);
 
   const observer = new MutationObserver(() => {
     if (!mapContainer || !document.contains(mapContainer)) {
