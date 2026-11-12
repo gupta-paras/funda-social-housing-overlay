@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Funda Social Housing Overlay (AFWC)",
-  "version": "1.0.1",
-  "description": "High-performance overlay of social and corporate housing patches onto Funda's map so you can instantly identify and avoid corporate housing areas.",
+  "name": "Social Housing Overlay (Funda & Google Maps)",
+  "version": "1.1.0",
+  "description": "High-performance overlay of AFWC social housing patches onto Funda and Google Maps so you can instantly identify corporate housing areas.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "*://*.funda.nl/*"
+    "*://*.funda.nl/*",
+    "*://*.google.com/maps*",
+    "*://*.google.nl/maps*",
+    "*://maps.google.com/*",
+    "*://maps.google.nl/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -24,7 +28,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.funda.nl/*"],
+      "matches": [
+        "*://*.funda.nl/*",
+        "*://*.google.com/maps*",
+        "*://*.google.nl/maps*",
+        "*://maps.google.com/*",
+        "*://maps.google.nl/*"
+      ],
       "js": ["spatial-index.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_end"
@@ -37,7 +47,13 @@
         "inject.js",
         "icons/*"
       ],
-      "matches": ["*://*.funda.nl/*"]
+      "matches": [
+        "*://*.funda.nl/*",
+        "*://*.google.com/*",
+        "*://*.google.nl/*",
+        "*://maps.google.com/*",
+        "*://maps.google.nl/*"
+      ]
     }
   ]
 }

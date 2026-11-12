@@ -1,9 +1,10 @@
 /**
- * Funda Social Housing Overlay - Content Script (v1.0.2)
- * High-performance spatial rendering over Funda's interactive map.
+ * Social Housing Overlay - Content Script (v1.1.0)
+ * High-performance spatial rendering over Funda and Google Maps.
  */
 (() => {
-  console.log('%c[Funda Housing Overlay v1.0.2] Active on page.', 'color: #dc2626; font-weight: bold; font-size: 13px;');
+  const isGoogle = window.location.hostname.includes('google');
+  console.log(`%c[Social Housing Overlay v1.1.0] Active on ${isGoogle ? 'Google Maps' : 'Funda'}.`, 'color: #dc2626; font-weight: bold; font-size: 13px;');
 
   // Inject helper script into webpage context to intercept map events if available
   try {
@@ -16,7 +17,7 @@
   // Global settings
   const settings = {
     enabled: true,
-    opacity: 0.70,
+    opacity: 0.60,
     minPercentage: 0,
     colorMode: 'risk', // 'risk' or 'corp'
     showTooltip: true
@@ -151,11 +152,11 @@
       spatialIndex = new window.SpatialIndex(0.01);
       spatialIndex.load(data);
       datasetLoaded = true;
-      console.log(`%c[Funda Housing Overlay] Indexed ${data.length} building blocks.`, 'color: #16a34a; font-weight: bold;');
+      console.log(`%c[Social Housing Overlay] Indexed ${data.length} building blocks.`, 'color: #16a34a; font-weight: bold;');
       scanAndSetupMap();
       scheduleRedraw();
     } catch (err) {
-      console.error('[Funda Housing Overlay] Failed to load data:', err);
+      console.error('[Social Housing Overlay] Failed to load data:', err);
       updateHudStats('Error loading dataset');
     }
   }
@@ -170,20 +171,44 @@
     return (Math.atan(Math.exp(y)) * 2 - Math.PI / 2) * (180 / Math.PI);
   }
 
-  // 5. Robust Map Container Detection
+  function getBoundsFromCenterZoom(centerLat, centerLng, zoom, width, height) {
+    const worldSize = 256 * Math.pow(2, zoom);
+    const centerX = ((centerLng + 180) / 360) * worldSize;
+    const centerY = (0.5 - lat2y(centerLat) / (2 * Math.PI)) * worldSize;
+
+    const minX = centerX - width / 2;
+    const maxX = centerX + width / 2;
+    const minY = centerY - height / 2;
+    const maxY = centerY + height / 2;
+
+    const west = (minX / worldSize) * 360 - 180;
+    const east = (maxX / worldSize) * 360 - 180;
+    const north = y2lat(Math.PI * (1 - (2 * minY) / worldSize));
+    const south = y2lat(Math.PI * (1 - (2 * maxY) / worldSize));
+
+    return { west, south, east, north };
+  }
+
+  // 5. Robust Map Container Detection (Funda + Google Maps)
   function findMapContainer() {
-    // Strategy 1: Active Mapbox/MapLibre canvas or WebGL canvas
+    // Strategy 1: Active map canvas (Mapbox GL or Google Maps WebGL canvas)
     const canvases = document.querySelectorAll('canvas');
     for (const c of canvases) {
       if (c.id === 'funda-social-housing-canvas') continue;
       const rect = c.getBoundingClientRect();
       if (rect.width > 250 && rect.height > 250) {
-        // Return this exact canvas element as target!
         return c;
       }
     }
 
-    // Strategy 2: Common map container class names
+    // Strategy 2: Google Maps specific scene containers
+    const gScene = document.querySelector('#scene, .widget-scene, .widget-scene-canvas, #content-container');
+    if (gScene) {
+      const rect = gScene.getBoundingClientRect();
+      if (rect.width > 200 && rect.height > 200) return gScene;
+    }
+
+    // Strategy 3: Common class names
     const classSelectors = [
       '.mapboxgl-map',
       '.maplibregl-map',
@@ -210,34 +235,17 @@
       }
     }
 
-    // Strategy 3: Large interactive area
-    const allDivs = document.querySelectorAll('div, section, main');
-    let bestCandidate = null;
-    let maxArea = 0;
-
-    for (const d of allDivs) {
-      if (d === hudElement || d.contains(hudElement)) continue;
-      const rect = d.getBoundingClientRect();
-      const area = rect.width * rect.height;
-      if (rect.width > 350 && rect.height > 350 && area > maxArea) {
-        if (d.querySelector('canvas, svg, img[src*="tile"], [class*="marker" i]')) {
-          maxArea = area;
-          bestCandidate = d;
-        }
-      }
-    }
-
-    return bestCandidate;
+    return null;
   }
 
-  // 6. Setup Canvas Overlay - ATTACHED TO BODY AS FIXED OVERLAY (NEVER COVERED BY TILES!)
+  // 6. Setup Canvas Overlay: Mounted on document.body with position: fixed
   function scanAndSetupMap() {
     const container = findMapContainer();
     if (!container) return;
 
     if (mapContainer !== container) {
       mapContainer = container;
-      console.log('%c[Funda Housing Overlay] Target map element identified:', 'color: #2563eb;', container);
+      console.log('%c[Social Housing Overlay] Map element identified:', 'color: #2563eb;', container);
 
       if (canvas && canvas.parentElement) canvas.remove();
 
@@ -245,11 +253,11 @@
       canvas.id = 'funda-social-housing-canvas';
       canvas.className = 'funda-housing-overlay';
 
-      // Always append to document.body with position: fixed and highest z-index!
+      // Attach to document.body with position: fixed (working v1.0.2 structure)
       document.body.appendChild(canvas);
       ctx = canvas.getContext('2d');
 
-      setupEventListeners(container);
+      setupEventListeners();
       setupTooltip();
     }
 
@@ -267,7 +275,6 @@
 
     if (w <= 0 || h <= 0) return;
 
-    // Position fixed directly over the map container on the screen
     canvas.style.position = 'fixed';
     canvas.style.top = `${rect.top}px`;
     canvas.style.left = `${rect.left}px`;
@@ -282,22 +289,49 @@
     }
   }
 
-  // 7. Parse Bounding Box from Funda URL
+  // 7. Parse Bounding Box from URL (supports both Funda and Google Maps)
   function parseUrlBounds() {
     try {
-      const url = new URL(window.location.href);
-      const tlLat = parseFloat(url.searchParams.get('top_left_lat'));
-      const tlLng = parseFloat(url.searchParams.get('top_left_lng'));
-      const brLat = parseFloat(url.searchParams.get('bottom_right_lat'));
-      const brLng = parseFloat(url.searchParams.get('bottom_right_lng'));
+      const url = window.location.href;
 
-      if (!isNaN(tlLat) && !isNaN(tlLng) && !isNaN(brLat) && !isNaN(brLng)) {
-        return {
-          west: Math.min(tlLng, brLng),
-          south: Math.min(tlLat, brLat),
-          east: Math.max(tlLng, brLng),
-          north: Math.max(tlLat, brLat)
-        };
+      // 1. Funda bounding box parameters
+      if (url.includes('top_left_lat')) {
+        const u = new URL(url);
+        const tlLat = parseFloat(u.searchParams.get('top_left_lat'));
+        const tlLng = parseFloat(u.searchParams.get('top_left_lng'));
+        const brLat = parseFloat(u.searchParams.get('bottom_right_lat'));
+        const brLng = parseFloat(u.searchParams.get('bottom_right_lng'));
+
+        if (!isNaN(tlLat) && !isNaN(tlLng) && !isNaN(brLat) && !isNaN(brLng)) {
+          return {
+            west: Math.min(tlLng, brLng),
+            south: Math.min(tlLat, brLat),
+            east: Math.max(tlLng, brLng),
+            north: Math.max(tlLat, brLat)
+          };
+        }
+      }
+
+      // 2. Google Maps URL (@lat,lng,zoomz or @lat,lng,altm)
+      const rect = mapContainer ? mapContainer.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
+      const w = rect.width || window.innerWidth;
+      const h = rect.height || window.innerHeight;
+
+      const matchZoom = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+(?:\.\d+)?)z/);
+      if (matchZoom) {
+        const lat = parseFloat(matchZoom[1]);
+        const lng = parseFloat(matchZoom[2]);
+        const z = parseFloat(matchZoom[3]);
+        return getBoundsFromCenterZoom(lat, lng, z, w, h);
+      }
+
+      const matchMeters = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+(?:\.\d+)?)m/);
+      if (matchMeters) {
+        const lat = parseFloat(matchMeters[1]);
+        const lng = parseFloat(matchMeters[2]);
+        const meters = parseFloat(matchMeters[3]);
+        const z = Math.log2(352000000 / meters);
+        return getBoundsFromCenterZoom(lat, lng, z, w, h);
       }
     } catch (e) {}
     return null;
@@ -500,8 +534,7 @@
     document.body.appendChild(tooltipElement);
   }
 
-  function setupEventListeners(container) {
-    // Listen on window / document so mouse events are never missed
+  function setupEventListeners() {
     window.addEventListener('mousemove', (e) => {
       if (!settings.enabled || !spatialIndex || !mapContainer) {
         hideTooltip();
@@ -593,7 +626,7 @@
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // 11. Sync Timers & Observers
+  // 11. Continuous Sync Timers
   setInterval(checkUrlSync, 100);
 
   const observer = new MutationObserver(() => {
